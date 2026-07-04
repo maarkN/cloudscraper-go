@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/maarkN/cloudscraper-go/internal/fingerprint"
+	"github.com/maarkN/cloudscraper-go/internal/retry"
 	"github.com/maarkN/cloudscraper-go/internal/transport"
 )
 
@@ -31,6 +32,8 @@ type config struct {
 	timeout         time.Duration
 	followRedirects bool
 	insecure        bool
+	proxyURL        string
+	maxRetries      int
 	extraHeaders    []fingerprint.Header
 }
 
@@ -72,12 +75,30 @@ func WithInsecureSkipVerify() Option {
 	return func(c *config) { c.insecure = true }
 }
 
+// WithProxy routes requests through a proxy. Supported schemes: http (CONNECT
+// tunnel) and socks5. Example: "http://user:pass@host:8080".
+func WithProxy(rawURL string) Option {
+	return func(c *config) { c.proxyURL = rawURL }
+}
+
+// WithRetries sets how many times a transient failure (network error or a
+// retryable status such as 429/502/503/504) is retried, with exponential
+// backoff. Default 2; pass 0 to disable.
+func WithRetries(n int) Option {
+	return func(c *config) {
+		if n >= 0 {
+			c.maxRetries = n
+		}
+	}
+}
+
 // New builds a Client from the given options.
 func New(opts ...Option) (*Client, error) {
 	cfg := config{
 		profileName:     fingerprint.DefaultProfile,
 		timeout:         30 * time.Second,
 		followRedirects: true,
+		maxRetries:      2,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -95,8 +116,21 @@ func New(opts ...Option) (*Client, error) {
 
 	tr := transport.New(profile.ClientHelloID)
 	tr.InsecureSkipVerify = cfg.insecure
+	if cfg.proxyURL != "" {
+		proxyURL, perr := url.Parse(cfg.proxyURL)
+		if perr != nil {
+			return nil, fmt.Errorf("invalid proxy url %q: %w", cfg.proxyURL, perr)
+		}
+		tr.Proxy = proxyURL
+	}
 
-	hc := &http.Client{Transport: tr, Jar: jar, Timeout: cfg.timeout}
+	// Retries wrap the uTLS transport; cookies and redirects wrap the retries.
+	var rt http.RoundTripper = tr
+	if cfg.maxRetries > 0 {
+		rt = retry.New(tr, cfg.maxRetries)
+	}
+
+	hc := &http.Client{Transport: rt, Jar: jar, Timeout: cfg.timeout}
 	if !cfg.followRedirects {
 		hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	}
