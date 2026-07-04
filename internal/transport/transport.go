@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,9 @@ type Transport struct {
 	DialTimeout time.Duration
 	// InsecureSkipVerify disables certificate verification. Testing only.
 	InsecureSkipVerify bool
+	// Proxy, when set, routes the TCP dial through an http (CONNECT) or socks5
+	// proxy. nil means a direct connection.
+	Proxy *url.URL
 }
 
 // New returns a Transport that mimics the given browser ClientHello.
@@ -53,8 +57,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		port = "443"
 	}
 
-	dialer := &net.Dialer{Timeout: t.DialTimeout}
-	tcpConn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
+	tcpConn, err := t.dialTarget(ctx, net.JoinHostPort(host, port))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", host, err)
 	}

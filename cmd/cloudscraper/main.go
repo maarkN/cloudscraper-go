@@ -44,6 +44,8 @@ func fetchCmd() *cobra.Command {
 		dumpHeaders bool
 		noRedirect  bool
 		insecure    bool
+		proxy       string
+		retries     int
 	)
 	cmd := &cobra.Command{
 		Use:   "fetch <url>",
@@ -56,12 +58,16 @@ func fetchCmd() *cobra.Command {
 			opts := []cloudscraper.Option{
 				cloudscraper.WithProfile(profile),
 				cloudscraper.WithTimeout(timeout),
+				cloudscraper.WithRetries(retries),
 			}
 			if noRedirect {
 				opts = append(opts, cloudscraper.WithoutRedirects())
 			}
 			if insecure {
 				opts = append(opts, cloudscraper.WithInsecureSkipVerify())
+			}
+			if proxy != "" {
+				opts = append(opts, cloudscraper.WithProxy(proxy))
 			}
 
 			client, err := cloudscraper.New(opts...)
@@ -92,6 +98,8 @@ func fetchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dumpHeaders, "dump-headers", false, "print response headers to stderr")
 	cmd.Flags().BoolVar(&noRedirect, "no-redirect", false, "do not follow redirects")
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS certificate verification")
+	cmd.Flags().StringVar(&proxy, "proxy", "", "proxy URL (http://host:port or socks5://host:port)")
+	cmd.Flags().IntVar(&retries, "retries", 2, "retries on transient failures (network / 429 / 5xx)")
 	return cmd
 }
 

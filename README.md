@@ -88,7 +88,26 @@ func main() {
 }
 ```
 
-Options: `WithProfile`, `WithTimeout`, `WithoutRedirects`, `WithHeader`.
+Options: `WithProfile`, `WithTimeout`, `WithoutRedirects`, `WithHeader`,
+`WithProxy`, `WithRetries`.
+
+### Sessions, retries & proxy (M2)
+
+A `Client` is a hot session: its cookie jar persists across calls, so a login or
+challenge cookie set on one request rides along on the next.
+
+```go
+client, _ := cloudscraper.New(
+	cloudscraper.WithProfile("chrome"),
+	cloudscraper.WithRetries(3),                       // network / 429 / 5xx, exp. backoff + jitter
+	cloudscraper.WithProxy("http://user:pass@host:8080"), // http CONNECT or socks5://
+)
+a, _ := client.Get(ctx, "https://site/login")   // sets a cookie
+b, _ := client.Get(ctx, "https://site/account") // cookie is reused automatically
+```
+
+Retries honour `Retry-After` and the request context; they only replay requests
+whose body can be rewound. From the CLI: `--retries` and `--proxy`.
 
 ## Scope & limitations (read this)
 
@@ -139,7 +158,8 @@ session is where the Go rewrite should pull clearly ahead.
 
 - [x] **M1 — uTLS transport:** Chrome/Firefox ClientHello, verified against
   `tls.peet.ws`. CLI `fetch` + `fingerprint`.
-- [ ] **M2 — Sessions:** cookie reuse across requests, retries with backoff, proxy.
+- [x] **M2 — Sessions:** cookie reuse across requests, retries with exponential
+  backoff + jitter (honouring `Retry-After`), and http/socks5 proxy support.
 - [ ] **M3 — Concurrent crawler:** worker pool (`errgroup` + semaphore), per-host
   rate limiting, cancellable `context`, Prometheus metrics.
 - [ ] **M4 — Server mode:** HTTP daemon that keeps sessions hot (seed in
