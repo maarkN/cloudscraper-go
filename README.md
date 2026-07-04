@@ -135,6 +135,31 @@ A single failing URL never aborts the others; a cancelled context stops the whol
 crawl. `Fetcher` is a one-method interface, so the crawler is unit-tested with a
 fake — no network.
 
+### Server mode (M4)
+
+Run it as a daemon that keeps solved sessions **hot** — each `?session=` id maps
+to its own long-lived, cookie-warm client:
+
+```bash
+go run ./cmd/server -addr :8080 -idle-ttl 10m
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /healthz` | liveness |
+| `GET /fetch?url=…&session=…&profile=…` | fetch via the (reused) hot session |
+| `DELETE /sessions/{id}` | drop a session |
+| `GET /metrics` | Prometheus (requests, duration, in-flight, active sessions) |
+
+```bash
+curl "localhost:8080/fetch?url=https://example.com&session=a"   # solves once
+curl "localhost:8080/fetch?url=https://example.com/about&session=a" # reuses it
+```
+
+Idle sessions are evicted by a background janitor; `SIGINT`/`SIGTERM` triggers a
+graceful drain. Handlers depend on a small `Doer`/`Factory` pair, so they're
+unit-tested without network.
+
 ## Scope & limitations (read this)
 
 Being explicit about what pure Go can and can't do is a feature, not a caveat.
@@ -189,8 +214,9 @@ session is where the Go rewrite should pull clearly ahead.
 - [x] **M3 — Concurrent crawler:** bounded worker pool (`errgroup` + semaphore),
   per-host token-bucket rate limiting, cancellable `context` + backpressure, and
   Prometheus metrics. CLI `crawl`.
-- [ ] **M4 — Server mode:** HTTP daemon that keeps sessions hot (seed in
-  `cmd/server`).
+- [x] **M4 — Server mode:** HTTP daemon that keeps sessions hot (per-session
+  clients), with `/fetch`, session close, Prometheus `/metrics`, idle eviction
+  and graceful shutdown.
 - [ ] **M5 — Agent bridge:** expose the server as an MCP tool — the native Go
   backend for [`cloudscraper.js`](https://github.com/maarkN/cloudscraper.js)'s
   agent story.
