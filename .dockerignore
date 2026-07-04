@@ -1,0 +1,10 @@
+.git
+.github
+bin
+*.md
+!README.md
+.golangci.yml
+.gitignore
+Makefile
+examples
+.DS_Store

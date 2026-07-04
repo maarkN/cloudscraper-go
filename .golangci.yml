@@ -1,0 +1,15 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - misspell
+    - revive
+    - unconvert
+    - errorlint
+
+formatters:
+  enable:
+    - gofmt
