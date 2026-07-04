@@ -109,6 +109,32 @@ b, _ := client.Get(ctx, "https://site/account") // cookie is reused automaticall
 Retries honour `Retry-After` and the request context; they only replay requests
 whose body can be rewound. From the CLI: `--retries` and `--proxy`.
 
+### Concurrent crawling (M3)
+
+Fetch many URLs with a bounded worker pool, per-host rate limiting and optional
+Prometheus metrics — cancellable and with backpressure:
+
+```go
+import "github.com/maarkN/cloudscraper-go/internal/crawl"
+
+crawler := crawl.New(fetcher, crawl.Options{
+	Concurrency: 8,    // bounded in-flight fetches (semaphore)
+	PerHostRPS:  2,    // token-bucket rate limit per host
+	Metrics:     crawl.NewMetrics(prometheus.DefaultRegisterer),
+})
+results, err := crawler.Crawl(ctx, urls) // results keep input order; per-URL errors captured
+```
+
+From the CLI:
+
+```bash
+cloudscraper crawl -c 8 --rps 2 https://a.example https://b.example https://c.example
+```
+
+A single failing URL never aborts the others; a cancelled context stops the whole
+crawl. `Fetcher` is a one-method interface, so the crawler is unit-tested with a
+fake — no network.
+
 ## Scope & limitations (read this)
 
 Being explicit about what pure Go can and can't do is a feature, not a caveat.
@@ -160,8 +186,9 @@ session is where the Go rewrite should pull clearly ahead.
   `tls.peet.ws`. CLI `fetch` + `fingerprint`.
 - [x] **M2 — Sessions:** cookie reuse across requests, retries with exponential
   backoff + jitter (honouring `Retry-After`), and http/socks5 proxy support.
-- [ ] **M3 — Concurrent crawler:** worker pool (`errgroup` + semaphore), per-host
-  rate limiting, cancellable `context`, Prometheus metrics.
+- [x] **M3 — Concurrent crawler:** bounded worker pool (`errgroup` + semaphore),
+  per-host token-bucket rate limiting, cancellable `context` + backpressure, and
+  Prometheus metrics. CLI `crawl`.
 - [ ] **M4 — Server mode:** HTTP daemon that keeps sessions hot (seed in
   `cmd/server`).
 - [ ] **M5 — Agent bridge:** expose the server as an MCP tool — the native Go
