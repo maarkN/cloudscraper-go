@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/maarkN/cloudscraper-go/internal/crawl"
 	"github.com/maarkN/cloudscraper-go/internal/fingerprint"
 	"github.com/maarkN/cloudscraper-go/pkg/cloudscraper"
 )
@@ -33,8 +34,66 @@ func rootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(fetchCmd(), fingerprintCmd())
+	root.AddCommand(fetchCmd(), fingerprintCmd(), crawlCmd())
 	return root
+}
+
+// clientFetcher adapts *cloudscraper.Client to the crawl.Fetcher interface.
+type clientFetcher struct{ c *cloudscraper.Client }
+
+func (f clientFetcher) Fetch(ctx context.Context, rawURL string) (int, []byte, error) {
+	resp, err := f.c.Get(ctx, rawURL)
+	if err != nil {
+		return 0, nil, err
+	}
+	return resp.StatusCode, resp.Body, nil
+}
+
+func crawlCmd() *cobra.Command {
+	var (
+		profile     string
+		timeout     time.Duration
+		concurrency int
+		rps         float64
+	)
+	cmd := &cobra.Command{
+		Use:   "crawl <url>...",
+		Short: "Fetch many URLs concurrently (bounded worker pool + per-host rate limit)",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(_ *cobra.Command, args []string) error {
+			ctx, cancel := signalContext()
+			defer cancel()
+
+			client, err := cloudscraper.New(
+				cloudscraper.WithProfile(profile),
+				cloudscraper.WithTimeout(timeout),
+			)
+			if err != nil {
+				return err
+			}
+
+			crawler := crawl.New(clientFetcher{client}, crawl.Options{
+				Concurrency: concurrency,
+				PerHostRPS:  rps,
+			})
+			results, err := crawler.Crawl(ctx, args)
+			for _, r := range results {
+				if r.Err != nil {
+					fmt.Fprintf(os.Stderr, "ERR  %s  %v\n", r.URL, r.Err)
+					continue
+				}
+				fmt.Fprintf(os.Stderr, "%3d  %-50s  %d bytes  %s\n",
+					r.StatusCode, r.URL, len(r.Body), r.Duration.Round(time.Millisecond))
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVarP(&profile, "profile", "p", fingerprint.DefaultProfile,
+		"browser fingerprint profile ("+strings.Join(fingerprint.Names(), ", ")+")")
+	cmd.Flags().DurationVarP(&timeout, "timeout", "t", 30*time.Second, "per-request timeout")
+	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0, "max concurrent fetches (0 = NumCPU*2)")
+	cmd.Flags().Float64Var(&rps, "rps", 0, "per-host requests/second (0 = unlimited)")
+	return cmd
 }
 
 func fetchCmd() *cobra.Command {
