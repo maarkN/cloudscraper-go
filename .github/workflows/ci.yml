@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: [oldstable, stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+      - run: go build ./...
+      - run: go vet ./...
+      - name: gofmt
+        run: |
+          out=$(gofmt -s -l .)
+          if [ -n "$out" ]; then
+            echo "These files need gofmt -s:"; echo "$out"; exit 1
+          fi
+      - name: test (race, offline)
+        run: go test -race -short ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
