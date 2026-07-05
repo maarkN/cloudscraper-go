@@ -228,9 +228,29 @@ For heavy JS challenges, the plan is a **pluggable fallback** (headless via
 
 ## Benchmarks
 
-`go test -bench . ./internal/transport` (network). Numbers versus the Python
-`cloudscraper` approach will be published once M2 (session reuse) lands — a hot
-session is where the Go rewrite should pull clearly ahead.
+Measured on loopback (a local TLS server) so the numbers isolate the library's
+own cost — uTLS handshake + HTTP + gzip inflate — with no network variance, and
+are reproducible:
+
+```bash
+go test -run '^$' -bench BenchmarkGet -benchmem ./pkg/cloudscraper
+```
+
+| Benchmark | per request | throughput | allocs/op |
+|---|---:|---:|---:|
+| `Get` (sequential) | ~8.4 ms | ~119 req/s | 1,227 |
+| `Get` (parallel, 8 threads) | ~3.5 ms | ~282 req/s | 1,239 |
+
+*Intel i7-4850HQ (4C/8T), Go 1.26.* Concurrency yields **~2.4×** throughput. Each
+request currently opens a **fresh TLS connection**, so the uTLS handshake
+dominates the per-request time — connection pooling is the clear next
+optimization. (Hot *sessions* already avoid re-solving the anti-bot challenge;
+pooling would additionally avoid re-handshaking.)
+
+For context, the Python approach this replaces — the original `cloudscraper.js` —
+spawned a `python` process **per request** (interpreter cold-start + a freshly
+created scraper), a cost measured in hundreds of milliseconds to seconds.
+cloudscraper-go is a single static binary with no per-request process spawn.
 
 ## Roadmap
 

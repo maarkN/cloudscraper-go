@@ -13,8 +13,8 @@ test: ## Offline, deterministic test suite (race)
 test-net: ## Full suite including network fingerprint tests
 	go test -race ./...
 
-bench: ## Network benchmark
-	go test -bench . -run '^$$' ./internal/transport
+bench: ## Reproducible loopback benchmark (uTLS handshake + HTTP + gzip)
+	go test -run '^$$' -bench BenchmarkGet -benchmem ./pkg/cloudscraper
 
 lint: ## Run golangci-lint (install: https://golangci-lint.run)
 	golangci-lint run ./...
