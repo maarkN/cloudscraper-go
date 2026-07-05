@@ -8,10 +8,10 @@ A native **Go** library and CLI to fetch anti-bot–protected pages — **TLS/JA
 fingerprint spoofing via [uTLS](https://github.com/refraction-networking/utls)**,
 no Python, no headless browser for the common cases. A single static binary.
 
-> **Status:** early. **Milestone M1 (browser TLS fingerprint) is done and
-> demonstrable** — the `fingerprint` command below proves a Chrome-matching
-> JA3/JA4 over HTTP/2. Sessions, a concurrent crawler and a server/MCP bridge are
-> on the roadmap.
+> **Status:** the full roadmap (M1–M5) is implemented and CI-green — a browser
+> TLS fingerprint (verifiable against `tls.peet.ws`), hot sessions with retries +
+> proxy, a bounded concurrent crawler, a server daemon, and an **MCP server** so
+> AI agents can call it as a tool. Scope limits are documented, not hidden.
 
 ## Problem
 
@@ -160,6 +160,33 @@ Idle sessions are evicted by a background janitor; `SIGINT`/`SIGTERM` triggers a
 graceful drain. Handlers depend on a small `Doer`/`Factory` pair, so they're
 unit-tested without network.
 
+## 🤖 Use it from an AI agent (MCP)
+
+`cloudscraper mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server over stdio (built on the official
+[`modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk)),
+so any MCP client — Claude Desktop, IDEs — can read anti-bot–protected pages as a
+tool. Point the client at the binary:
+
+```json
+{
+  "mcpServers": {
+    "cloudscraper": { "command": "cloudscraper", "args": ["mcp"] }
+  }
+}
+```
+
+Tools exposed:
+
+| Tool | Does |
+|---|---|
+| `fetch_protected_url` | Fetch a URL with a browser TLS fingerprint, returning clean **Markdown** (default) or raw HTML — what an LLM actually wants to read. |
+| `get_cookies` | Solve the challenge for a URL and return the resulting cookies. |
+
+This is the native Go counterpart to the MCP server in
+[`cloudscraper.js`](https://github.com/maarkN/cloudscraper.js) — same idea, single
+static binary, no Python.
+
 ## Scope & limitations (read this)
 
 Being explicit about what pure Go can and can't do is a feature, not a caveat.
@@ -217,8 +244,9 @@ session is where the Go rewrite should pull clearly ahead.
 - [x] **M4 — Server mode:** HTTP daemon that keeps sessions hot (per-session
   clients), with `/fetch`, session close, Prometheus `/metrics`, idle eviction
   and graceful shutdown.
-- [ ] **M5 — Agent bridge:** expose the server as an MCP tool — the native Go
-  backend for [`cloudscraper.js`](https://github.com/maarkN/cloudscraper.js)'s
+- [x] **M5 — Agent bridge:** an **MCP server** (`cloudscraper mcp`) exposing
+  `fetch_protected_url` (clean Markdown) and `get_cookies` — the native Go
+  counterpart to [`cloudscraper.js`](https://github.com/maarkN/cloudscraper.js)'s
   agent story.
 
 ## Development
