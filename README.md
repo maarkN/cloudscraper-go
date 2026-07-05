@@ -109,6 +109,7 @@ Pass `-H "Name: Value"` as many times as you need. It works on `fetch` and
 ```bash
 # A bearer token, an API key and an Accept header on a single fetch
 cloudscraper fetch https://api.example.com/v1/me \
+  -H "Referer: https://api.example.com/" \
   -H "Authorization: Bearer eyJhbGciOi..." \
   -H "X-Api-Key: 1234567890" \
   -H "Accept: application/json"
@@ -120,6 +121,30 @@ cloudscraper crawl -c 8 -H "Authorization: Bearer $TOKEN" \
 
 From the library it is `cloudscraper.WithHeader("Authorization", "Bearer ...")`,
 and you can pass it as many times as you like when constructing the client.
+
+#### When headers are enough, and when they aren't
+
+The right headers matter as much as the fingerprint. A lot of Cloudflare rules
+block on **request shape**, not TLS: a missing `Referer` (hotlink / anti-scraping
+rules), a missing API auth header, or a non-browser `Accept` / `Sec-Fetch-*`.
+Those are exactly what `-H` fixes. A common path from `403 Sorry, you have been
+blocked` to `200` looks like:
+
+```bash
+cloudscraper fetch "https://api.example.com/v1/search?q=..." --profile firefox \
+  -H "Referer: https://api.example.com/" \        # clears a Referer-gated Cloudflare rule
+  -H "Authorization: Guest" \                     # some public APIs still want an auth header
+  -H "Accept: application/json, text/plain, */*"
+```
+
+**It is enough** when the block is header- or IP-based: a browser fingerprint plus
+the right `-H` headers get you through, and the response is the real content
+(check the body, not just the status).
+
+**It is not enough** when the site serves a JavaScript challenge ("Just a
+moment...") or keys on the **HTTP/2 frame fingerprint**, which is still Go's (see
+Scope & limitations below). Pure Go cannot clear those, and the tool says so
+rather than pretending.
 
 ### Library
 
