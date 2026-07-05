@@ -6,15 +6,20 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
+	"github.com/maarkN/cloudscraper-go/internal/agent"
 	"github.com/maarkN/cloudscraper-go/internal/crawl"
 	"github.com/maarkN/cloudscraper-go/internal/fingerprint"
 	"github.com/maarkN/cloudscraper-go/pkg/cloudscraper"
@@ -34,8 +39,58 @@ func rootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(fetchCmd(), fingerprintCmd(), crawlCmd())
+	root.AddCommand(fetchCmd(), fingerprintCmd(), crawlCmd(), mcpCmd())
 	return root
+}
+
+// isDisconnect reports whether err is a normal MCP client disconnect (stdin EOF)
+// or a signal-triggered shutdown, rather than a real failure.
+func isDisconnect(err error) bool {
+	return errors.Is(err, io.EOF) ||
+		errors.Is(err, context.Canceled) ||
+		strings.Contains(err.Error(), "EOF")
+}
+
+// mcpScraper adapts *cloudscraper.Client to agent.Scraper.
+type mcpScraper struct{ c *cloudscraper.Client }
+
+func (s mcpScraper) Get(ctx context.Context, url string) (int, http.Header, []byte, error) {
+	resp, err := s.c.Get(ctx, url)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return resp.StatusCode, resp.Header, resp.Body, nil
+}
+
+func (s mcpScraper) Cookies(url string) ([]*http.Cookie, error) { return s.c.Cookies(url) }
+
+func mcpCmd() *cobra.Command {
+	var profile string
+	cmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Run an MCP server over stdio, exposing cloudscraper tools to AI agents",
+		Long: "Starts a Model Context Protocol server on stdio exposing the tools\n" +
+			"fetch_protected_url and get_cookies. Point any MCP client (Claude Desktop,\n" +
+			"IDEs) at `cloudscraper mcp`.",
+		Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			ctx, cancel := signalContext()
+			defer cancel()
+			client, err := cloudscraper.New(cloudscraper.WithProfile(profile))
+			if err != nil {
+				return err
+			}
+			// A client disconnect (stdin EOF) or a signal is a clean shutdown.
+			err = agent.NewServer(mcpScraper{client}).Run(ctx, &mcp.StdioTransport{})
+			if err == nil || isDisconnect(err) {
+				return nil
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVarP(&profile, "profile", "p", fingerprint.DefaultProfile,
+		"browser fingerprint profile ("+strings.Join(fingerprint.Names(), ", ")+")")
+	return cmd
 }
 
 // clientFetcher adapts *cloudscraper.Client to the crawl.Fetcher interface.
