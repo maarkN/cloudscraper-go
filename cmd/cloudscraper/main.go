@@ -43,6 +43,21 @@ func rootCmd() *cobra.Command {
 	return root
 }
 
+// headerOptions turns raw "Name: Value" strings (from -H flags) into client
+// options, so callers can send Authorization, X-Api-Key, or any custom header.
+func headerOptions(raw []string) ([]cloudscraper.Option, error) {
+	opts := make([]cloudscraper.Option, 0, len(raw))
+	for _, h := range raw {
+		name, value, ok := strings.Cut(h, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("invalid header %q, expected \"Name: Value\"", h)
+		}
+		opts = append(opts, cloudscraper.WithHeader(name, strings.TrimSpace(value)))
+	}
+	return opts, nil
+}
+
 // isDisconnect reports whether err is a normal MCP client disconnect (stdin EOF)
 // or a signal-triggered shutdown, rather than a real failure.
 func isDisconnect(err error) bool {
@@ -110,6 +125,7 @@ func crawlCmd() *cobra.Command {
 		timeout     time.Duration
 		concurrency int
 		rps         float64
+		header      []string
 	)
 	cmd := &cobra.Command{
 		Use:   "crawl <url>...",
@@ -119,10 +135,17 @@ func crawlCmd() *cobra.Command {
 			ctx, cancel := signalContext()
 			defer cancel()
 
-			client, err := cloudscraper.New(
+			opts := []cloudscraper.Option{
 				cloudscraper.WithProfile(profile),
 				cloudscraper.WithTimeout(timeout),
-			)
+			}
+			hdrs, err := headerOptions(header)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, hdrs...)
+
+			client, err := cloudscraper.New(opts...)
 			if err != nil {
 				return err
 			}
@@ -148,6 +171,8 @@ func crawlCmd() *cobra.Command {
 	cmd.Flags().DurationVarP(&timeout, "timeout", "t", 30*time.Second, "per-request timeout")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0, "max concurrent fetches (0 = NumCPU*2)")
 	cmd.Flags().Float64Var(&rps, "rps", 0, "per-host requests/second (0 = unlimited)")
+	cmd.Flags().StringArrayVarP(&header, "header", "H", nil,
+		`extra request header "Name: Value" (repeatable), applied to every fetch`)
 	return cmd
 }
 
@@ -160,6 +185,7 @@ func fetchCmd() *cobra.Command {
 		insecure    bool
 		proxy       string
 		retries     int
+		header      []string
 	)
 	cmd := &cobra.Command{
 		Use:   "fetch <url>",
@@ -183,6 +209,11 @@ func fetchCmd() *cobra.Command {
 			if proxy != "" {
 				opts = append(opts, cloudscraper.WithProxy(proxy))
 			}
+			hdrs, err := headerOptions(header)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, hdrs...)
 
 			client, err := cloudscraper.New(opts...)
 			if err != nil {
@@ -214,6 +245,8 @@ func fetchCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&insecure, "insecure", false, "skip TLS certificate verification")
 	cmd.Flags().StringVar(&proxy, "proxy", "", "proxy URL (http://host:port or socks5://host:port)")
 	cmd.Flags().IntVar(&retries, "retries", 2, "retries on transient failures (network / 429 / 5xx)")
+	cmd.Flags().StringArrayVarP(&header, "header", "H", nil,
+		`extra request header "Name: Value" (repeatable), e.g. -H "Authorization: Bearer ..."`)
 	return cmd
 }
 
