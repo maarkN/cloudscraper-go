@@ -66,6 +66,61 @@ user_agent:    Mozilla/5.0 (...) Chrome/131.0.0.0 Safari/537.36
 Switch `--profile firefox` and the JA3/JA4 changes to Firefox's — the cipher and
 extension ordering is genuinely different, not just the User-Agent.
 
+### CLI reference
+
+Run `cloudscraper <command> --help` for the authoritative list. All fetching
+commands take a browser `--profile` and can send extra request headers.
+
+`cloudscraper fetch <url>` — GET one URL. The body goes to stdout; status and
+headers go to stderr (so you can pipe the body cleanly).
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-p, --profile` | `chrome` | Browser fingerprint profile (`chrome`, `firefox`). |
+| `-H, --header` | | Extra request header `"Name: Value"`, repeatable. |
+| `-t, --timeout` | `30s` | Overall request timeout. |
+| `--retries` | `2` | Retries on transient failures (network / 429 / 5xx), with backoff + jitter. |
+| `--proxy` | | Proxy URL: `http://host:port` or `socks5://host:port` (Basic auth in the URL is supported). |
+| `--dump-headers` | `false` | Print the response headers to stderr. |
+| `--no-redirect` | `false` | Do not follow redirects. |
+| `--insecure` | `false` | Skip TLS certificate verification (testing only). |
+
+`cloudscraper crawl <url>...` — fetch many URLs concurrently.
+
+| Flag | Default | What it does |
+|---|---|---|
+| `-p, --profile` | `chrome` | Browser fingerprint profile. |
+| `-H, --header` | | Extra request header `"Name: Value"`, applied to every fetch. |
+| `-c, --concurrency` | `NumCPU*2` | Max concurrent fetches. |
+| `--rps` | `0` | Per-host requests per second (0 = unlimited). |
+| `-t, --timeout` | `30s` | Per-request timeout. |
+
+`cloudscraper fingerprint` — probe `tls.peet.ws` and print the JA3/JA4 the server
+sees. Flag: `-p, --profile`.
+
+`cloudscraper mcp` — run the MCP server over stdio (see the AI agents section
+below). Flag: `-p, --profile`.
+
+#### Custom headers (Authorization, X-Api-Key, anything)
+
+Pass `-H "Name: Value"` as many times as you need. It works on `fetch` and
+`crawl`:
+
+```bash
+# A bearer token, an API key and an Accept header on a single fetch
+cloudscraper fetch https://api.example.com/v1/me \
+  -H "Authorization: Bearer eyJhbGciOi..." \
+  -H "X-Api-Key: 1234567890" \
+  -H "Accept: application/json"
+
+# The same auth header applied to every URL in a concurrent crawl
+cloudscraper crawl -c 8 -H "Authorization: Bearer $TOKEN" \
+  https://api.example.com/a https://api.example.com/b
+```
+
+From the library it is `cloudscraper.WithHeader("Authorization", "Bearer ...")`,
+and you can pass it as many times as you like when constructing the client.
+
 ### Library
 
 ```go
