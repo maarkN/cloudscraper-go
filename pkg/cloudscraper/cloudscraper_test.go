@@ -110,3 +110,33 @@ func TestCookieSessionReuse(t *testing.T) {
 		t.Error("jar holds no cookies for the server")
 	}
 }
+
+// TestCustomHeaderIsSent proves WithHeader (and the CLI's -H flag) reaches the
+// server: an Authorization header set on the client shows up on the request.
+func TestCustomHeaderIsSent(t *testing.T) {
+	var gotAuth, gotKey string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotKey = r.Header.Get("X-Api-Key")
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer srv.Close()
+
+	client, err := cloudscraper.New(
+		cloudscraper.WithInsecureSkipVerify(),
+		cloudscraper.WithHeader("Authorization", "Bearer secret-token"),
+		cloudscraper.WithHeader("X-Api-Key", "k-123"),
+	)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := client.Get(context.Background(), srv.URL); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Errorf("Authorization = %q, want Bearer secret-token", gotAuth)
+	}
+	if gotKey != "k-123" {
+		t.Errorf("X-Api-Key = %q, want k-123", gotKey)
+	}
+}
